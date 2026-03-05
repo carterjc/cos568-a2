@@ -16,9 +16,9 @@
 """ Finetuning the library models for sequence classification on GLUE (Bert, XLM, XLNet, RoBERTa)."""
 
 from __future__ import absolute_import, division, print_function
+from typing import Any
 
 import argparse
-import glob
 import logging
 import os
 import random
@@ -32,7 +32,7 @@ from tqdm import tqdm, trange
 
 # import a previous version of the HuggingFace Transformers package
 from pytorch_transformers import (WEIGHTS_NAME, BertConfig,
-                                  BertForSequenceClassification, BertTokenizer,
+                                  BertForSequenceClassification, BertTokenizer, PreTrainedModel, PreTrainedTokenizer, PretrainedConfig,
                                   RobertaConfig,
                                   RobertaForSequenceClassification,
                                   RobertaTokenizer,
@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 ALL_MODELS = sum((tuple(conf.pretrained_config_archive_map.keys()) for conf in (BertConfig, XLNetConfig, XLMConfig, RobertaConfig)), ())
 
-MODEL_CLASSES = {
+MODEL_CLASSES: dict[str, tuple[type[PretrainedConfig], type[PreTrainedModel], type[PreTrainedTokenizer]]] = {
     'bert': (BertConfig, BertForSequenceClassification, BertTokenizer),
     'xlnet': (XLNetConfig, XLNetForSequenceClassification, XLNetTokenizer),
     'xlm': (XLMConfig, XLMForSequenceClassification, XLMTokenizer),
@@ -67,7 +67,7 @@ def set_seed(args):
     torch.cuda.manual_seed_all(args.seed)
 
 
-def train(args, train_dataset, model, tokenizer):
+def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer):
     """ Train the model """
 
     args.train_batch_size = args.per_device_train_batch_size
@@ -90,6 +90,7 @@ def train(args, train_dataset, model, tokenizer):
     scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=t_total)
     if args.fp16:
         try:
+            # from torch.cuda import amp
             from apex import amp
         except ImportError:
             raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
@@ -132,7 +133,7 @@ def train(args, train_dataset, model, tokenizer):
             else:
                 ##################################################
                 # TODO(cos568): perform backward pass here (expect one line of code)
-                
+                loss.backward()
                 ##################################################
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
@@ -140,7 +141,7 @@ def train(args, train_dataset, model, tokenizer):
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 ##################################################
                 # TODO(cos568): perform a single optimization step (parameter update) by invoking the optimizer (expect one line of code)
-                
+                optimizer.step()
                 ##################################################
                 scheduler.step() # Update learning rate schedule
                 model.zero_grad()
@@ -155,13 +156,13 @@ def train(args, train_dataset, model, tokenizer):
         
         ##################################################
         # TODO(cos568): call evaluate() here to get the model performance after every epoch. (expect one line of code)
-
+        evaluate(args, model, tokenizer)
         ##################################################
 
     return global_step, tr_loss / global_step
 
 
-def evaluate(args, model, tokenizer, prefix=""):
+def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, prefix=""):
     # Loop to handle MNLI double evaluation (matched, mis-matched)
     eval_task_names = ("mnli", "mnli-mm") if args.task_name == "mnli" else (args.task_name,)
     eval_outputs_dirs = (args.output_dir, args.output_dir + '-MM') if args.task_name == "mnli" else (args.output_dir,)
@@ -388,7 +389,7 @@ def main():
     ##################################################
     # TODO(cos568): load the model using from_pretrained. Remember to pass in `config` as an argument.
     # If you pass in args.model_name_or_path (e.g. "bert-base-cased"), the model weights file will be downloaded from HuggingFace. (expect one line of code)
-
+    model: PreTrainedModel = model_class.from_pretrained(args.model_name_or_path, config=config) # type: ignore
     ##################################################
 
     if args.local_rank == 0:
